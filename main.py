@@ -1,9 +1,8 @@
 import tensorflow as tf
-import tensorlayer as tl
-from tensorlayer.layers import set_keep
 import numpy as np
 import resnet_model
 import argparse
+import tlfiles
 
 parser = argparse.ArgumentParser(description='Define parameters.')
 
@@ -21,11 +20,53 @@ parser.add_argument('--lr_factor', type=float, default=0.1)
 args = parser.parse_args()
 
 
+def minibatches(inputs=None, targets=None, batch_size=None, shuffle=False):
+    """Generate a generator that input a group of example in numpy.array and
+    their labels, return the examples and labels by the given batchsize.
+    Parameters
+    ----------
+    inputs : numpy.array
+        (X) The input features, every row is a example.
+    targets : numpy.array
+        (y) The labels of inputs, every row is a example.
+    batch_size : int
+        The batch size.
+    shuffle : boolean
+        Indicating whether to use a shuffling queue, shuffle the dataset before return.
+    Examples
+    --------
+    >>> X = np.asarray([['a','a'], ['b','b'], ['c','c'], ['d','d'], ['e','e'], ['f','f']])
+    >>> y = np.asarray([0,1,2,3,4,5])
+    >>> for batch in tl.iterate.minibatches(inputs=X, targets=y, batch_size=2, shuffle=False):
+    >>>     print(batch)
+    ... (array([['a', 'a'],
+    ...        ['b', 'b']],
+    ...         dtype='<U1'), array([0, 1]))
+    ... (array([['c', 'c'],
+    ...        ['d', 'd']],
+    ...         dtype='<U1'), array([2, 3]))
+    ... (array([['e', 'e'],
+    ...        ['f', 'f']],
+    ...         dtype='<U1'), array([4, 5]))
+    """
+    assert len(inputs) == len(targets)
+    if shuffle:
+        indices = np.arange(len(inputs))
+        np.random.shuffle(indices)
+    for start_idx in range(0, len(inputs) - batch_size + 1, batch_size):
+        if shuffle:
+            excerpt = indices[start_idx:start_idx + batch_size]
+        else:
+            excerpt = slice(start_idx, start_idx + batch_size)
+        yield inputs[excerpt], targets[excerpt]
+
+
+
 class CNNEnv:
     def __init__(self):
 
         # The data, shuffled and split between train and test sets
-        self.x_train, self.y_train, self.x_test, self.y_test = tl.files.load_cifar10_dataset(shape=(-1, 32, 32, 3), plotable=False)
+        self.x_train, self.y_train, self.x_test, self.y_test = tlfiles.load_cifar10_dataset(shape=(-1, 32, 32, 3), plotable=False)
 
         # Reorder dimensions for tensorflow
         self.mean = np.mean(self.x_train, axis=0, keepdims=True)
@@ -50,7 +91,7 @@ class CNNEnv:
         self.img_col = args.n_img_col
         self.img_channels = args.n_img_channels
         self.nb_classes = args.n_classes
-        self.num_iter = self.x_train.shape[0] / self.batch_num  # per epoch
+        self.num_iter = self.x_train.shape[0] // self.batch_num  # per epoch
 
     def next_batch(self, batch_size):
         """Return the next `batch_size` examples from this data set."""
@@ -87,7 +128,7 @@ class CNNEnv:
         model.build_graph()
 
         merged = model.summaries
-        train_writer = tf.summary.FileWriter("/tmp/train_log", sess.graph)
+        train_writer = tf.summary.FileWriter("/tmp/train_log/2", sess.graph)
 
         sess.run(tf.global_variables_initializer())
         print('Done initializing variables')
@@ -121,10 +162,11 @@ class CNNEnv:
             print('Running evaluation...')
 
             test_loss, test_acc, n_batch = 0, 0, 0
-            for batch in tl.iterate.minibatches(inputs=self.x_test,
-                                                targets=self.y_test,
-                                                batch_size=self.batch_num,
-                                                shuffle=False):
+            for batch in minibatches(inputs=self.x_test,
+                targets=self.y_test,
+                batch_size=self.batch_num,
+                shuffle=False):
+
                 feed_dict_eval = {img: batch[0], labels: batch[1]}
 
                 loss, ac = sess.run([model.cost, model.acc], feed_dict=feed_dict_eval)

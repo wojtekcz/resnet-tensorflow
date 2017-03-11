@@ -1,25 +1,3 @@
-# Copyright 2016 The TensorFlow Authors. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-# ==============================================================================
-
-"""ResNet model.
-
-Related papers:
-https://arxiv.org/pdf/1603.05027v2.pdf
-https://arxiv.org/pdf/1512.03385v1.pdf
-https://arxiv.org/pdf/1605.07146v1.pdf
-"""
 from collections import namedtuple
 
 import numpy as np
@@ -89,7 +67,7 @@ class ResNet(object):
             x = res_func(x, filters[0], filters[1],
                          self._stride_arr(strides[0]),
                          activate_before_residual[0])
-        for i in xrange(1, self.hps.num_residual_units):
+        for i in range(1, self.hps.num_residual_units):
             with tf.variable_scope('unit_1_%d' % i):
                 x = res_func(x, filters[1], filters[1], self._stride_arr(1),
                              False)
@@ -98,7 +76,7 @@ class ResNet(object):
             x = res_func(x, filters[1], filters[2],
                          self._stride_arr(strides[1]),
                          activate_before_residual[1])
-        for i in xrange(1, self.hps.num_residual_units):
+        for i in range(1, self.hps.num_residual_units):
             with tf.variable_scope('unit_2_%d' % i):
                 x = res_func(x, filters[2], filters[2], self._stride_arr(1),
                              False)
@@ -107,7 +85,7 @@ class ResNet(object):
             x = res_func(x, filters[2], filters[3],
                          self._stride_arr(strides[2]),
                          activate_before_residual[2])
-        for i in xrange(1, self.hps.num_residual_units):
+        for i in range(1, self.hps.num_residual_units):
             with tf.variable_scope('unit_3_%d' % i):
                 x = res_func(x, filters[3], filters[3], self._stride_arr(1),
                              False)
@@ -123,7 +101,7 @@ class ResNet(object):
 
         with tf.variable_scope('costs'):
             xent = tf.nn.sparse_softmax_cross_entropy_with_logits(
-                logits, self.labels)
+                logits=logits, labels=self.labels)
             self.cost = tf.reduce_mean(xent, name='xent')
             self.cost += self._decay()
 
@@ -241,7 +219,7 @@ class ResNet(object):
 
     def _bottleneck_residual(self, x, in_filter, out_filter, stride,
                              activate_before_residual=False):
-        """Bottleneck resisual unit with 3 sub layers."""
+        """Bottleneck residual unit with 3 sub layers."""
         if activate_before_residual:
             with tf.variable_scope('common_bn_relu'):
                 x = self._batch_norm('init_bn', x)
@@ -285,7 +263,7 @@ class ResNet(object):
                 costs.append(tf.nn.l2_loss(var))
                 # tf.histogram_summary(var.op.name, var)
 
-        return tf.mul(self.hps.weight_decay_rate, tf.add_n(costs))
+        return tf.multiply(self.hps.weight_decay_rate, tf.add_n(costs))
 
     def _conv(self, name, x, filter_size, in_filters, out_filters, strides):
         """Convolution."""

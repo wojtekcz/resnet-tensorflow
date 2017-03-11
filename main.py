@@ -66,7 +66,8 @@ class CNNEnv:
     def __init__(self):
 
         # The data, shuffled and split between train and test sets
-        self.x_train, self.y_train, self.x_test, self.y_test = tlfiles.load_cifar10_dataset(shape=(-1, 32, 32, 3), plotable=False)
+        # self.x_train, self.y_train, self.x_test, self.y_test = tlfiles.load_cifar10_dataset(shape=(-1, 32, 32, 3), plotable=False)
+        self.x_train, self.y_train, self.x_test, self.y_test = tlfiles.load_cifar100_dataset(shape=(-1, 32, 32, 3), plotable=False)
 
         # Reorder dimensions for tensorflow
         self.mean = np.mean(self.x_train, axis=0, keepdims=True)
@@ -119,13 +120,19 @@ class CNNEnv:
     def train(self, hps):
         config = tf.ConfigProto()
         config.gpu_options.allow_growth = True
+        
         sess = tf.InteractiveSession(config=config)
 
         img = tf.placeholder(tf.float32, shape=[self.batch_num, 32, 32, 3])
         labels = tf.placeholder(tf.int32, shape=[self.batch_num, ])
 
+        # 'train' is for training mode vs. 'eval'
         model = resnet_model.ResNet(hps, img, labels, 'train')
         model.build_graph()
+
+        #acc_var = tf.Variable(tf.zeros([1]))
+        # Create a saver.
+        saver = tf.train.Saver(tf.trainable_variables())
 
         merged = model.summaries
         train_writer = tf.summary.FileWriter("/tmp/train_log/2", sess.graph)
@@ -152,12 +159,24 @@ class CNNEnv:
                              model.lrn_rate: lr}
                 _, l, ac, summary, lr = sess.run([model.train_op, model.cost, model.acc, merged, model.lrn_rate], feed_dict=feed_dict)
                 train_writer.add_summary(summary, i)
+
                 #
                 if i % 200 == 0:
                     print('step', i+1)
                     print('Training loss', l)
                     print('Training accuracy', ac)
                     print('Learning rate', lr)
+                    
+                    checkpoint_file='checkpoints/checkpoint_{}.chk'.format(i)
+                    
+                    # x = tf.Variable([42.0, 42.1, 42.3], name=’x’)
+                    # y = tf.Variable([[1.0, 2.0], [3.0, 4.0]], name=’y’)
+                    # not_saved = tf.Variable([-1, -2], name=’not_saved’)
+                    # session.run(tf.initialize_all_variables())
+
+                    # print(session.run(tf.all_variables()))
+                    saver.save(sess, checkpoint_file)
+
 
             print('Running evaluation...')
 

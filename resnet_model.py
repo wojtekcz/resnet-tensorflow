@@ -49,6 +49,8 @@ class ResNet(object):
             x = self._conv('init_conv', x, 3, 3, 16, self._stride_arr(1))
 
         strides = [1, 2, 2]
+        # activate_before_residual for each of our 3 units
+        # question: why activate before or after whats the difference?
         activate_before_residual = [True, False, False]
         if self.hps.use_bottleneck:
             res_func = self._bottleneck_residual
@@ -149,6 +151,7 @@ class ResNet(object):
                 initializer=tf.constant_initializer(1.0, tf.float32))
 
             if self.mode == 'train':
+                # is this valid only for one batch??
                 mean, variance = tf.nn.moments(x, [0, 1, 2], name='moments')
 
                 moving_mean = tf.get_variable(
@@ -166,6 +169,8 @@ class ResNet(object):
                 self._extra_train_ops.append(
                     moving_averages.assign_moving_average(
                         moving_variance, variance, 0.9))
+            
+            # this is 'eval' mode??
             else:
                 mean = tf.get_variable(
                     'moving_mean', params_shape, tf.float32,

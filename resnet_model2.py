@@ -38,12 +38,18 @@ class ResNet(object):
             self._build_train_op()
         self.summaries = tf.summary.merge_all()
 
+    # TODO: kill _stride_arr
     def _stride_arr(self, stride):
         """Map a stride scalar to the stride array for tf.nn.conv2d."""
         return [1, stride, stride, 1]
 
     def _build_model(self):
         """Build the core model within the graph."""
+
+        # cut here
+        # x = self._images
+        # x = self._conv('init_conv', x, 3, 3, 16, self._stride_arr(1))
+
         with tf.variable_scope('init'):
             x = self._images
             x = self._conv('init_conv', x, 3, 3, 16, self._stride_arr(1))
@@ -101,6 +107,9 @@ class ResNet(object):
             logits = self._fully_connected(x, self.hps.num_classes)
             self.predictions = tf.nn.softmax(logits)
 
+        # cut here
+        # output? = self.predictions = tf.nn.softmax(logits)
+
         with tf.variable_scope('costs'):
             xent = tf.nn.sparse_softmax_cross_entropy_with_logits(
                 logits=logits, labels=self.labels)
@@ -137,6 +146,8 @@ class ResNet(object):
         train_ops = [apply_op] + self._extra_train_ops
         self.train_op = tf.group(*train_ops)
 
+
+    # TODO: kill _batch_norm
     # TODO(xpan): Consider batch_norm in contrib/layers/python/layers/layers.py
     def _batch_norm(self, name, x):
         """Batch normalization."""
@@ -188,6 +199,7 @@ class ResNet(object):
             y.set_shape(x.get_shape())
             return y
 
+    # TODO: kill _residual
     def _residual(self, x, in_filter, out_filter, stride,
                   activate_before_residual=False):
         """Residual unit with 2 sub layers."""
@@ -222,6 +234,7 @@ class ResNet(object):
         tf.logging.info('image after unit %s', x.get_shape())
         return x
 
+    # TODO: kill _bottleneck_residual
     def _bottleneck_residual(self, x, in_filter, out_filter, stride,
                              activate_before_residual=False):
         """Bottleneck residual unit with 3 sub layers."""
@@ -270,6 +283,7 @@ class ResNet(object):
 
         return tf.multiply(self.hps.weight_decay_rate, tf.add_n(costs))
 
+    # TODO: kill and replace _conv
     def _conv(self, name, x, filter_size, in_filters, out_filters, strides):
         """Convolution."""
         with tf.variable_scope(name):
@@ -280,11 +294,13 @@ class ResNet(object):
                     stddev=np.sqrt(2.0 / n)))
             return tf.nn.conv2d(x, kernel, strides, padding='SAME')
 
+    # TODO: kill _relu
     def _relu(self, x, leakiness=0.0):
         """Relu, with optional leaky support."""
         # return tf.select(tf.less(x, 0.0), leakiness * x, x, name='leaky_relu')
         return tf.nn.relu(x)
 
+    # TODO: kill and replace _fully_connected
     def _fully_connected(self, x, out_dim):
         """FullyConnected layer for final output."""
         x = tf.reshape(x, [self.hps.batch_size, -1])
@@ -295,6 +311,7 @@ class ResNet(object):
                             initializer=tf.constant_initializer())
         return tf.nn.xw_plus_b(x, w, b)
 
+    # TODO: kill _global_avg_pool
     def _global_avg_pool(self, x):
         assert x.get_shape().ndims == 4
         return tf.reduce_mean(x, [1, 2])

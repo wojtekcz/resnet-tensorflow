@@ -38,74 +38,129 @@ class ResNet(object):
             self._build_train_op()
         self.summaries = tf.summary.merge_all()
 
-    # TODO: kill _stride_arr
-    def _stride_arr(self, stride):
-        """Map a stride scalar to the stride array for tf.nn.conv2d."""
-        return [1, stride, stride, 1]
+    def avgpool(self,inputs, ksize, strides, padding='VALID', name=None):
+        with tf.name_scope(name, 'avgpool'):
+            ksize = [1] + ksize + [1]
+            strides = [1] + strides + [1]
+            return tf.nn.avg_pool(inputs, ksize, strides, padding)
+
+    def maxpool(self,inputs, ksize, strides, padding='VALID', name=None):
+        with tf.name_scope(name, 'maxpool'):
+            ksize = [1] + ksize + [1]
+            strides = [1] + strides + [1]
+            return tf.nn.max_pool(inputs, ksize, strides, padding)
+
+    def flatten(self,inputs, name=None):
+        prev_shape = inputs.get_shape().as_list()
+        fan_in = np.prod(prev_shape[1:])
+        with tf.name_scope(name, 'flatten'):
+            return tf.reshape(inputs, [-1, fan_in])
+
+    def conv(self,inputs, depth, ksize, strides=[1, 1], padding='SAME',
+             bval=0.01, activation_fn=tf.nn.relu, scope=None):
+        prev_shape = inputs.get_shape().as_list()
+        prev_depth = prev_shape[-1]
+        kshape = ksize + [prev_depth, depth]
+        strides = [1] + strides + [1]
+        fan_in = np.prod(prev_shape[1:], dtype=np.float32)
+        with tf.variable_scope(scope, 'conv_layer'):
+            xavier_stddev = tf.sqrt(tf.constant(2.0, dtype=tf.float32) / fan_in, name='xavier_stddev')
+            w = tf.Variable(tf.truncated_normal(kshape, stddev=xavier_stddev), name='kernel')
+            conv = tf.nn.conv2d(inputs, w, strides, padding, name='conv')
+            if bval:
+                b = tf.Variable(tf.constant(bval, shape=[depth]), name='bias')
+                z = tf.nn.bias_add(conv, b)
+            return z if activation_fn is None else activation_fn(z)
+
+    def fully_connected_layer(self,inputs, depth, bval=0.01, activation_fn=tf.nn.relu,
+                              keep_prob=None, scope=None):
+        inputs = tf.convert_to_tensor(inputs)
+        prev_shape = inputs.get_shape().as_list()
+        fan_in = prev_shape[-1]
+        with tf.variable_scope(scope, 'fully_connected'):
+            xavier_stddev = tf.sqrt(tf.constant(2.0, dtype=tf.float32) / fan_in, name='xavier_stddev')
+            w = tf.Variable(tf.truncated_normal([fan_in, depth], stddev=xavier_stddev), name='W')
+            b = tf.Variable(tf.constant(bval, shape=[depth]), name='bias')
+            z = tf.matmul(inputs, w) + b
+            a = z if activation_fn is None else activation_fn(z)
+            return a if keep_prob is None else tf.nn.dropout(a, keep_prob)
+
+    def residual_block(self,inputs, bottleneck_depth, output_depth, downsample=False, scope=None):
+        with tf.variable_scope(scope, 'residual_block'):
+            if downsample:
+                inputs = self.maxpool(inputs=inputs,
+                                 ksize=[2, 2],
+                                 strides=[2, 2],
+                                 padding='VALID',
+                                 name='downsample')
+            prev_depth = inputs.get_shape()[3]
+            relu1 = self.conv(inputs=inputs,
+                         depth=bottleneck_depth,
+                         ksize=[1, 1],
+                         strides=[1, 1],
+                         padding='SAME',
+                         scope='conv1')
+            relu2 = self.conv(inputs=relu1,
+                         depth=bottleneck_depth,
+                         ksize=[3, 3],
+                         strides=[1, 1],
+                         padding='SAME',
+                         scope='conv2')
+            conv3 = self.conv(inputs=relu2,
+                         depth=output_depth,
+                         ksize=[1, 1],
+                         strides=[1, 1],
+                         padding='SAME',
+                         scope='conv3',
+                         activation_fn=None)
+            if inputs.get_shape() != conv3.get_shape():
+                inputs = self.conv(inputs=inputs,
+                              depth=output_depth,
+                              ksize=[1, 1],
+                              strides=[1, 1],
+                              padding='SAME',
+                              scope='shortcut',
+                              activation_fn=None)
+            add = tf.add(conv3, inputs)
+            return tf.nn.relu(add)
+
+    def resnet(self, inputs, keep_prob):
+        input_depth = inputs.get_shape()[3]
+        c = self.conv(inputs=inputs, depth=64, ksize=[7, 7], strides=[2, 2], padding='SAME', scope='conv1')
+        p = self.maxpool(inputs=c, ksize=[3, 3], strides=[2, 2], padding='SAME', name='maxpool_3x3')
+        block = p  # makes below loops more semantic
+        with tf.variable_scope('stack_1'):
+            for i in range(3):
+                block = self.residual_block(inputs=block, bottleneck_depth=64, output_depth=256, scope='block_{}'.format(i))
+        with tf.variable_scope('stack_2'):
+            for i in range(8):
+                ds = True if i == 0 else False  # down-sample first block only
+                block = self.residual_block(inputs=block, bottleneck_depth=128, output_depth=512,
+                                       scope='block_{}'.format(i), downsample=ds)
+        with tf.variable_scope('stack_3'):
+            for i in range(36):
+                ds = True if i == 0 else False  # down-sample first block only
+                block = self.residual_block(inputs=block, bottleneck_depth=256, output_depth=1024,
+                                       scope='block_{}'.format(i), downsample=ds)
+        with tf.variable_scope('stack_4'):
+            for i in range(3):
+                ds = True if i == 0 else False  # down-sample first block only
+                block = self.residual_block(inputs=block, bottleneck_depth=512, output_depth=2048,
+                                       scope='block_{}'.format(i), downsample=ds)
+        p = self.avgpool(inputs=block, ksize=[7, 7], strides=[1, 1], padding='VALID', name='avgpool_7x7')
+        flat = self.flatten(p)
+        fc = self.fully_connected_layer(flat, 1000, activation_fn=None, scope='linear')
+        softmax = tf.nn.softmax(fc)
+        return softmax, fc
 
     def _build_model(self):
         """Build the core model within the graph."""
 
         # cut here
-        # x = self._images
+        x = self._images
         # x = self._conv('init_conv', x, 3, 3, 16, self._stride_arr(1))
 
-        with tf.variable_scope('init'):
-            x = self._images
-            x = self._conv('init_conv', x, 3, 3, 16, self._stride_arr(1))
-
-        strides = [1, 2, 2]
-        # activate_before_residual for each of our 3 units
-        # question: why activate before or after whats the difference?
-        activate_before_residual = [True, False, False]
-        if self.hps.use_bottleneck:
-            res_func = self._bottleneck_residual
-            filters = [16, 64, 128, 256]
-        else:
-            res_func = self._residual
-            filters = [16, 16, 32, 64]
-            # Uncomment the following codes to use w28-10 wide residual network.
-            # It is more memory efficient than very deep residual network and has
-            # comparably good performance.
-            # https://arxiv.org/pdf/1605.07146v1.pdf
-            # filters = [16, 160, 320, 640]
-            # Update hps.num_residual_units to 9
-
-        with tf.variable_scope('unit_1_0'):
-            x = res_func(x, filters[0], filters[1],
-                         self._stride_arr(strides[0]),
-                         activate_before_residual[0])
-        for i in range(1, self.hps.num_residual_units):
-            with tf.variable_scope('unit_1_%d' % i):
-                x = res_func(x, filters[1], filters[1], self._stride_arr(1),
-                             False)
-
-        with tf.variable_scope('unit_2_0'):
-            x = res_func(x, filters[1], filters[2],
-                         self._stride_arr(strides[1]),
-                         activate_before_residual[1])
-        for i in range(1, self.hps.num_residual_units):
-            with tf.variable_scope('unit_2_%d' % i):
-                x = res_func(x, filters[2], filters[2], self._stride_arr(1),
-                             False)
-
-        with tf.variable_scope('unit_3_0'):
-            x = res_func(x, filters[2], filters[3],
-                         self._stride_arr(strides[2]),
-                         activate_before_residual[2])
-        for i in range(1, self.hps.num_residual_units):
-            with tf.variable_scope('unit_3_%d' % i):
-                x = res_func(x, filters[3], filters[3], self._stride_arr(1),
-                             False)
-
-        with tf.variable_scope('unit_last'):
-            x = self._batch_norm('final_bn', x)
-            x = self._relu(x, self.hps.relu_leakiness)
-            x = self._global_avg_pool(x)
-
-        with tf.variable_scope('logit'):
-            logits = self._fully_connected(x, self.hps.num_classes)
-            self.predictions = tf.nn.softmax(logits)
+        self.predictions, logits = self.resnet(inputs=x, keep_prob=0.5)
 
         # cut here
         # output? = self.predictions = tf.nn.softmax(logits)
@@ -147,131 +202,6 @@ class ResNet(object):
         self.train_op = tf.group(*train_ops)
 
 
-    # TODO: kill _batch_norm
-    # TODO(xpan): Consider batch_norm in contrib/layers/python/layers/layers.py
-    def _batch_norm(self, name, x):
-        """Batch normalization."""
-        with tf.variable_scope(name):
-            params_shape = [x.get_shape()[-1]]
-
-            beta = tf.get_variable(
-                'beta', params_shape, tf.float32,
-                initializer=tf.constant_initializer(0.0, tf.float32))
-            gamma = tf.get_variable(
-                'gamma', params_shape, tf.float32,
-                initializer=tf.constant_initializer(1.0, tf.float32))
-
-            if self.mode == 'train':
-                # is this valid only for one batch??
-                mean, variance = tf.nn.moments(x, [0, 1, 2], name='moments')
-
-                moving_mean = tf.get_variable(
-                    'moving_mean', params_shape, tf.float32,
-                    initializer=tf.constant_initializer(0.0, tf.float32),
-                    trainable=False)
-                moving_variance = tf.get_variable(
-                    'moving_variance', params_shape, tf.float32,
-                    initializer=tf.constant_initializer(1.0, tf.float32),
-                    trainable=False)
-
-                self._extra_train_ops.append(
-                    moving_averages.assign_moving_average(
-                        moving_mean, mean, 0.9))
-                self._extra_train_ops.append(
-                    moving_averages.assign_moving_average(
-                        moving_variance, variance, 0.9))
-            
-            # this is 'eval' mode??
-            else:
-                mean = tf.get_variable(
-                    'moving_mean', params_shape, tf.float32,
-                    initializer=tf.constant_initializer(0.0, tf.float32),
-                    trainable=False)
-                variance = tf.get_variable(
-                    'moving_variance', params_shape, tf.float32,
-                    initializer=tf.constant_initializer(1.0, tf.float32),
-                    trainable=False)
-                tf.summary.histogram(mean.op.name, mean)
-                tf.summary.histogram(variance.op.name, variance)
-            # elipson used to be 1e-5. Maybe 0.001 solves NaN problem in deeper net.
-            y = tf.nn.batch_normalization(
-                x, mean, variance, beta, gamma, 0.001)
-            y.set_shape(x.get_shape())
-            return y
-
-    # TODO: kill _residual
-    def _residual(self, x, in_filter, out_filter, stride,
-                  activate_before_residual=False):
-        """Residual unit with 2 sub layers."""
-        if activate_before_residual:
-            with tf.variable_scope('shared_activation'):
-                x = self._batch_norm('init_bn', x)
-                x = self._relu(x, self.hps.relu_leakiness)
-                orig_x = x
-        else:
-            with tf.variable_scope('residual_only_activation'):
-                orig_x = x
-                x = self._batch_norm('init_bn', x)
-                x = self._relu(x, self.hps.relu_leakiness)
-
-        with tf.variable_scope('sub1'):
-            x = self._conv('conv1', x, 3, in_filter, out_filter, stride)
-
-        with tf.variable_scope('sub2'):
-            x = self._batch_norm('bn2', x)
-            x = self._relu(x, self.hps.relu_leakiness)
-            x = self._conv('conv2', x, 3, out_filter, out_filter, [1, 1, 1, 1])
-
-        with tf.variable_scope('sub_add'):
-            if in_filter != out_filter:
-                orig_x = tf.nn.avg_pool(orig_x, stride, stride, 'VALID')
-                orig_x = tf.pad(
-                    orig_x, [[0, 0], [0, 0], [0, 0],
-                             [(out_filter - in_filter) // 2,
-                              (out_filter - in_filter) // 2]])
-            x += orig_x
-
-        tf.logging.info('image after unit %s', x.get_shape())
-        return x
-
-    # TODO: kill _bottleneck_residual
-    def _bottleneck_residual(self, x, in_filter, out_filter, stride,
-                             activate_before_residual=False):
-        """Bottleneck residual unit with 3 sub layers."""
-        if activate_before_residual:
-            with tf.variable_scope('common_bn_relu'):
-                x = self._batch_norm('init_bn', x)
-                x = self._relu(x, self.hps.relu_leakiness)
-                orig_x = x
-        else:
-            with tf.variable_scope('residual_bn_relu'):
-                orig_x = x
-                x = self._batch_norm('init_bn', x)
-                x = self._relu(x, self.hps.relu_leakiness)
-
-        with tf.variable_scope('sub1'):
-            x = self._conv('conv1', x, 1, in_filter, out_filter / 4, stride)
-
-        with tf.variable_scope('sub2'):
-            x = self._batch_norm('bn2', x)
-            x = self._relu(x, self.hps.relu_leakiness)
-            x = self._conv('conv2', x, 3, out_filter / 4, out_filter / 4,
-                           [1, 1, 1, 1])
-
-        with tf.variable_scope('sub3'):
-            x = self._batch_norm('bn3', x)
-            x = self._relu(x, self.hps.relu_leakiness)
-            x = self._conv('conv3', x, 1, out_filter / 4, out_filter,
-                           [1, 1, 1, 1])
-
-        with tf.variable_scope('sub_add'):
-            if in_filter != out_filter:
-                orig_x = self._conv('project', orig_x, 1, in_filter,
-                                    out_filter, stride)
-            x += orig_x
-
-        tf.logging.info('image after unit %s', x.get_shape())
-        return x
 
     def _decay(self):
         """L2 weight decay loss."""
@@ -283,35 +213,3 @@ class ResNet(object):
 
         return tf.multiply(self.hps.weight_decay_rate, tf.add_n(costs))
 
-    # TODO: kill and replace _conv
-    def _conv(self, name, x, filter_size, in_filters, out_filters, strides):
-        """Convolution."""
-        with tf.variable_scope(name):
-            n = filter_size * filter_size * out_filters
-            kernel = tf.get_variable(
-                'DW', [filter_size, filter_size, in_filters, out_filters],
-                tf.float32, initializer=tf.random_normal_initializer(
-                    stddev=np.sqrt(2.0 / n)))
-            return tf.nn.conv2d(x, kernel, strides, padding='SAME')
-
-    # TODO: kill _relu
-    def _relu(self, x, leakiness=0.0):
-        """Relu, with optional leaky support."""
-        # return tf.select(tf.less(x, 0.0), leakiness * x, x, name='leaky_relu')
-        return tf.nn.relu(x)
-
-    # TODO: kill and replace _fully_connected
-    def _fully_connected(self, x, out_dim):
-        """FullyConnected layer for final output."""
-        x = tf.reshape(x, [self.hps.batch_size, -1])
-        w = tf.get_variable(
-            'DW', [x.get_shape()[1], out_dim],
-            initializer=tf.uniform_unit_scaling_initializer(factor=1.0))
-        b = tf.get_variable('biases', [out_dim],
-                            initializer=tf.constant_initializer())
-        return tf.nn.xw_plus_b(x, w, b)
-
-    # TODO: kill _global_avg_pool
-    def _global_avg_pool(self, x):
-        assert x.get_shape().ndims == 4
-        return tf.reduce_mean(x, [1, 2])

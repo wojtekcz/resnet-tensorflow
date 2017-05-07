@@ -1,6 +1,6 @@
 import tensorflow as tf
 import numpy as np
-import resnet_model
+import resnet_model2
 import argparse
 import tlfiles
 
@@ -66,8 +66,8 @@ class CNNEnv:
     def __init__(self):
 
         # The data, shuffled and split between train and test sets
-        # self.x_train, self.y_train, self.x_test, self.y_test = tlfiles.load_cifar10_dataset(shape=(-1, 32, 32, 3), plotable=False)
-        self.x_train, self.y_train, self.x_test, self.y_test = tlfiles.load_cifar100_dataset(shape=(-1, 32, 32, 3), plotable=False)
+        self.x_train, self.y_train, self.x_test, self.y_test = tlfiles.load_cifar10_dataset(shape=(-1, 32, 32, 3), plotable=False)
+        # self.x_train, self.y_train, self.x_test, self.y_test = tlfiles.load_cifar100_dataset(shape=(-1, 32, 32, 3), plotable=False)
 
         # Reorder dimensions for tensorflow
         self.mean = np.mean(self.x_train, axis=0, keepdims=True)
@@ -127,7 +127,7 @@ class CNNEnv:
         labels = tf.placeholder(tf.int32, shape=[self.batch_num, ])
 
         # 'train' is for training mode vs. 'eval'
-        model = resnet_model.ResNet(hps, img, labels, 'train')
+        model = resnet_model2.ResNet(hps, img, labels, 'train')
         model.build_graph()
 
         #acc_var = tf.Variable(tf.zeros([1]))
@@ -203,7 +203,7 @@ class CNNEnv:
 
 run = CNNEnv()
 
-hps = resnet_model.HParams(batch_size=run.batch_num,
+hps = resnet_model2.HParams(batch_size=run.batch_num,
                            num_classes=run.nb_classes,
                            min_lrn_rate=0.0001,
                            lrn_rate=args.lr,

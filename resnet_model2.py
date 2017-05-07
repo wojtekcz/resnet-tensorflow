@@ -131,25 +131,25 @@ class ResNet(object):
         block = p  # makes below loops more semantic
         with tf.variable_scope('stack_1'):
             for i in range(3):
-                block = self.residual_block(inputs=block, bottleneck_depth=64, output_depth=256, scope='block_{}'.format(i))
+                block = self.residual_block(inputs=block, bottleneck_depth=16, output_depth=256, scope='block_{}'.format(i))
         with tf.variable_scope('stack_2'):
             for i in range(8):
                 ds = True if i == 0 else False  # down-sample first block only
-                block = self.residual_block(inputs=block, bottleneck_depth=128, output_depth=512,
+                block = self.residual_block(inputs=block, bottleneck_depth=64, output_depth=512,
                                        scope='block_{}'.format(i), downsample=ds)
         with tf.variable_scope('stack_3'):
             for i in range(36):
                 ds = True if i == 0 else False  # down-sample first block only
-                block = self.residual_block(inputs=block, bottleneck_depth=256, output_depth=1024,
+                block = self.residual_block(inputs=block, bottleneck_depth=128, output_depth=1024,
                                        scope='block_{}'.format(i), downsample=ds)
         with tf.variable_scope('stack_4'):
             for i in range(3):
                 ds = True if i == 0 else False  # down-sample first block only
-                block = self.residual_block(inputs=block, bottleneck_depth=512, output_depth=2048,
+                block = self.residual_block(inputs=block, bottleneck_depth=256, output_depth=2048,
                                        scope='block_{}'.format(i), downsample=ds)
         p = self.avgpool(inputs=block, ksize=[7, 7], strides=[1, 1], padding='VALID', name='avgpool_7x7')
         flat = self.flatten(p)
-        fc = self.fully_connected_layer(flat, 1000, activation_fn=None, scope='linear')
+        fc = self.fully_connected_layer(flat, 10, activation_fn=None, scope='linear')
         softmax = tf.nn.softmax(fc)
         return softmax, fc
 

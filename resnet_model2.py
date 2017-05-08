@@ -113,6 +113,7 @@ class ResNet(object):
                          padding='SAME',
                          scope='conv3',
                          activation_fn=None)
+            # does this actually kick in or not?
             if inputs.get_shape() != conv3.get_shape():
                 inputs = self.conv(inputs=inputs,
                               depth=output_depth,
@@ -126,28 +127,24 @@ class ResNet(object):
 
     def resnet(self, inputs, keep_prob):
         input_depth = inputs.get_shape()[3]
-        c = self.conv(inputs=inputs, depth=64, ksize=[7, 7], strides=[2, 2], padding='SAME', scope='conv1')
-        p = self.maxpool(inputs=c, ksize=[3, 3], strides=[2, 2], padding='SAME', name='maxpool_3x3')
-        block = p  # makes below loops more semantic
+        c = self.conv(inputs=inputs, depth=16, ksize=[3, 3], strides=[1, 1], padding='SAME', scope='conv1')
+        #p = self.maxpool(inputs=c, ksize=[3, 3], strides=[2, 2], padding='SAME', name='maxpool_3x3')
+        #block = p  # makes below loops more semantic
+        block = c
         with tf.variable_scope('stack_1'):
-            for i in range(3):
-                block = self.residual_block(inputs=block, bottleneck_depth=16, output_depth=256, scope='block_{}'.format(i))
+            for i in range(5):
+                block = self.residual_block(inputs=block, bottleneck_depth=16, output_depth=16, scope='block_{}'.format(i))
         with tf.variable_scope('stack_2'):
-            for i in range(8):
+            for i in range(5):
                 ds = True if i == 0 else False  # down-sample first block only
-                block = self.residual_block(inputs=block, bottleneck_depth=64, output_depth=512,
+                block = self.residual_block(inputs=block, bottleneck_depth=16, output_depth=32,
                                        scope='block_{}'.format(i), downsample=ds)
         with tf.variable_scope('stack_3'):
-            for i in range(36):
+            for i in range(5):
                 ds = True if i == 0 else False  # down-sample first block only
-                block = self.residual_block(inputs=block, bottleneck_depth=128, output_depth=1024,
+                block = self.residual_block(inputs=block, bottleneck_depth=32, output_depth=64,
                                        scope='block_{}'.format(i), downsample=ds)
-        with tf.variable_scope('stack_4'):
-            for i in range(3):
-                ds = True if i == 0 else False  # down-sample first block only
-                block = self.residual_block(inputs=block, bottleneck_depth=256, output_depth=2048,
-                                       scope='block_{}'.format(i), downsample=ds)
-        p = self.avgpool(inputs=block, ksize=[7, 7], strides=[1, 1], padding='VALID', name='avgpool_7x7')
+        p = self.avgpool(inputs=block, ksize=[4, 4], strides=[1, 1], padding='VALID', name='avgpool_4x4')
         flat = self.flatten(p)
         fc = self.fully_connected_layer(flat, 10, activation_fn=None, scope='linear')
         softmax = tf.nn.softmax(fc)
